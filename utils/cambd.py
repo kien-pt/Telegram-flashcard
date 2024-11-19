@@ -2,6 +2,7 @@ import re
 import requests
 
 from bs4 import BeautifulSoup
+from engine.vocab import Vocabulary
 
 
 DEFINITION_URL = "https://dictionary.cambridge.org/dictionary/english/"
@@ -16,7 +17,7 @@ def decode_escaped_chars(strg):
 
 
 # [SOURCE]: https://github.com/rocktimsaikia/cambd/blob/main/cambd/cambd.py
-def get_definitions(word: str):
+def get_definitions(word: str) -> list[Vocabulary]:
     response = requests.get(DEFINITION_URL + word, headers=REQUEST_HEADERS)
 
     # We are considering a word to be invalid based on redirection only but that may not be the case for valids words
@@ -29,17 +30,19 @@ def get_definitions(word: str):
         return []
 
     soup = BeautifulSoup(response.content, "html5lib")
-    definitions = []
+    definitions: list[Vocabulary] = []
+
+    headword = soup.find(attrs={"class": "headword"}).get_text()
 
     dictionaries = soup.find_all(attrs={"class": "dictionary"})
     for dictionary in dictionaries:
         def_blocks = dictionary.find_all(attrs={"class": "ddef_block"})
-        dict_region = dictionary.find(attrs={"class": "region"}).get_text().upper()
 
-        ipa = ''
-        us_ipa = soup.find(attrs={"class": "us"}).get_text()
-        if us_ipa:
-            ipa = soup.find(attrs={"class": "ipa"}).get_text()
+        ipa = None
+        us_ipa_elm = soup.find(attrs={"class": "us"})
+        if us_ipa_elm:
+            ipa_elm = soup.find(attrs={"class": "ipa"})
+            ipa = ipa_elm.get_text()
 
         for dblock in def_blocks:
             word_type = dblock.find(attrs={"class": "dsense_pos"})
@@ -61,7 +64,7 @@ def get_definitions(word: str):
                 for expl in example_containers:
                     example_text = expl.get_text().strip()
                     example_text = decode_escaped_chars(example_text)
-                    examples.append('-' + example_text)
+                    examples.append(example_text)
 
                 definition = definition.strip().capitalize()
                 definition = definition[:-1] if definition.endswith(":") else definition
@@ -70,16 +73,14 @@ def get_definitions(word: str):
                 if len(examples) > 2:
                     examples = examples[:2]
 
-                definition_dict = {
-                    "word": word,
-                    "ipa": ipa,
-                    "definition": definition,
-                    "type": word_type,
-                    "dictionaryRegion": dict_region,
-                    "info": def_info,
-                    "examples": examples,
-                }
-                definitions.append(definition_dict)
+                vocab = Vocabulary(
+                    word=headword,
+                    ipa=ipa,
+                    word_type=word_type,
+                    definition=definition,
+                    examples=examples
+                )
+                definitions.append(vocab)
 
     return definitions
 

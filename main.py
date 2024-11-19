@@ -16,20 +16,16 @@ BOT_VOCAB = BotVocabulary(
     session_id="vocab",
 )
 
-print(BOT_VOCAB.tele_engine.auth_id)
 
 @BOT_VOCAB.tele_engine.client.on(events.NewMessage(chats=BOT_VOCAB.admin_id, pattern="/shuffle", from_users=BOT_VOCAB.tele_engine.auth_id))
 async def shuffle_handler(event):
-    message = event.message
-    if message.text != "/shuffle": return
-    list_vocabulary = await BOT_VOCAB.get_list_vocabulary()
-    BOT_VOCAB.random_ask(list_vocabulary)
+    BOT_VOCAB.random_ask()
 
 
 @BOT_VOCAB.tele_engine.client.on(events.NewMessage(chats=BOT_VOCAB.admin_id, pattern="/search", from_users=BOT_VOCAB.tele_engine.auth_id))
 async def search_handler(event):
     message = event.message.message
-    word = message.replace("/search", "").strip()
+    word = message.replace("/search", "").strip().replace(" ", "-")
     BOT_VOCAB.search_word(word)
 
 
@@ -50,18 +46,31 @@ async def add_handler(event):
 
 @BOT_VOCAB.tele_engine.client.on(events.NewMessage(chats=BOT_VOCAB.admin_id, pattern="/clear", from_users=BOT_VOCAB.tele_engine.auth_id))
 async def clear_handler(event):
-    message = event.message
-    if message.text != "/clear": return
-
     list_id = []
     chat = await BOT_VOCAB.tele_engine.client.get_entity(event.message.chat_id)
     async for message in BOT_VOCAB.tele_engine.client.iter_messages(chat, limit= None):
-        if message.text and "#" not in message.text: list_id.append(message.id)
-
+        if message.text and "#" not in message.text:
+            list_id.append(message.id)
     await BOT_VOCAB.tele_engine.client.delete_messages(chat, message_ids=list_id)
+
+
+@BOT_VOCAB.tele_engine.client.on(events.NewMessage(chats=BOT_VOCAB.admin_id, pattern="/", from_users=1283551985))
+async def search_v2_handler(event):
+    message = event.message
+    text = message.text.strip("/")
+
+    list_found = [w for w in BOT_VOCAB.latest_vocabulary if w.word.replace(" ", "_") == text]
+    if len(list_found) == 1:
+        word = list_found[0]
+        BOT_VOCAB.tele_engine.send_message(BOT_VOCAB.admin_id, word.convert_to_markdown(False), "Markdown")
+
+
+if __name__ != '__main__': os._exit(0)
+
 
 t1 = threading.Thread(target=BOT_VOCAB.run_until_disconnected)
 t1.start()
+
 
 try:
     while True:
@@ -80,6 +89,7 @@ try:
 except KeyboardInterrupt:
     print("Stopped the bot!")
 except Exception as e:
+    raise
     print(e)
 finally:
     while t1.is_alive():
