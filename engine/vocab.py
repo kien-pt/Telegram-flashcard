@@ -39,7 +39,7 @@ class Vocabulary:
         md = ""
         if with_hashtag: md += "#"
 
-        md += replace_space_with_underscope(self.word)
+        md += normalize_text(self.word)
         md += "\n"
 
         if self.ipa:

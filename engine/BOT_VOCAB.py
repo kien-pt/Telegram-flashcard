@@ -24,6 +24,7 @@ class BotVocabulary:
 
         self.tele_engine = TelegramEngine(bot_token, api_id, api_hash, session_id, self.loop)
 
+        self.noti = True
         self.admin_id = admin_id
         self.latest_vocabulary: list[Vocabulary] = self.get_list_vocabulary()
         self.temporary_definitions: list[Vocabulary] = []

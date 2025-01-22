@@ -12,9 +12,18 @@ BOT_VOCAB = BotVocabulary(
     bot_token=TELEGRAM_BOT_TOKEN,
     api_id=TELETHON_API_ID,
     api_hash=TELETHON_API_HASH,
-    admin_id=-4275314255,
+    admin_id=-4655217982,
     session_id="vocab",
 )
+
+@BOT_VOCAB.tele_engine.client.on(events.NewMessage(chats=BOT_VOCAB.admin_id, pattern="/on", from_users=BOT_VOCAB.tele_engine.auth_id))
+async def toggle_on_handler(event):
+    BOT_VOCAB.noti = True
+
+
+@BOT_VOCAB.tele_engine.client.on(events.NewMessage(chats=BOT_VOCAB.admin_id, pattern="/off", from_users=BOT_VOCAB.tele_engine.auth_id))
+async def toggle_off_handler(event):
+    BOT_VOCAB.noti = False
 
 
 @BOT_VOCAB.tele_engine.client.on(events.NewMessage(chats=BOT_VOCAB.admin_id, pattern="/shuffle", from_users=BOT_VOCAB.tele_engine.auth_id))
@@ -83,7 +92,7 @@ try:
 
         # Only send messages in working hours
         is_working_hour = morning_start <= now <= morning_end or afternoon_start <= now <= afternoon_end
-        if is_working_hour: BOT_VOCAB.random_ask()
+        if BOT_VOCAB.noti and is_working_hour: BOT_VOCAB.random_ask()
 
         sleep(20 * 60)
 except KeyboardInterrupt:
