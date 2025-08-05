@@ -14,3 +14,4 @@ def replace_space_with_underscope(text: str):
 
 def normalize_text(text: str):
     return replace_space_with_underscope(remove_punc(text))
+

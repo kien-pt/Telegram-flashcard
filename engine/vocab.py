@@ -43,15 +43,15 @@ class Vocabulary:
         md += "\n"
 
         if self.ipa:
-            md += "\[ " + self.ipa.replace(".", ".\u200b") + " ]"
+            md += "[" + self.ipa.replace(".", ".\u200b") + "]"
             md += "\n\n"
         else:
             md += "\n"
 
-        md += "_" + self.word_type + "_"
+        md += "__" + self.word_type + "__"
         md += "\n\n"
 
-        md += self.definition
+        md += "**" + self.definition + "**"
         md += "\n\n"
         
         if self.examples:
