@@ -25,7 +25,7 @@ class Vocabulary:
         self.word = word_text.split('\n')[0].replace("_", " ")
 
         if len(word_text.split('\n')) > 1:
-            self.ipa = word_text.split('\n')[1].replace("[ ", "").replace(" ]", "")
+            self.ipa = word_text.split('\n')[1].replace("[", "").replace("]", "")
 
         self.word_type = list_row[1].replace("__", "")
         self.definition = list_row[2]
@@ -35,7 +35,7 @@ class Vocabulary:
 
         return True
 
-    def convert_to_markdown(self, with_hashtag: bool = True) -> str:
+    def convert_to_markdown(self, with_hashtag: bool = True, with_spoilers: bool = False) -> str:
         md = ""
         if with_hashtag: md += "#"
 
@@ -48,10 +48,11 @@ class Vocabulary:
         else:
             md += "\n"
 
+
         md += "__" + self.word_type + "__"
         md += "\n\n"
 
-        md += "**" + self.definition + "**"
+        md += "**" + ("[" if with_spoilers else "") + self.definition + ("](spoiler)" if with_spoilers else "") + "**"
         md += "\n\n"
         
         if self.examples:

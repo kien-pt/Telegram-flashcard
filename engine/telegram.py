@@ -1,6 +1,29 @@
 import asyncio
 
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, types
+from telethon.extensions import markdown
+
+class CustomMarkdown:
+    @staticmethod
+    def parse(text):
+        text, entities = markdown.parse(text)
+        for i, e in enumerate(entities):
+            if isinstance(e, types.MessageEntityTextUrl):
+                if e.url == 'spoiler':
+                    entities[i] = types.MessageEntitySpoiler(e.offset, e.length)
+                elif e.url.startswith('emoji/'):
+                    entities[i] = types.MessageEntityCustomEmoji(e.offset, e.length, int(e.url.split('/')[1]))
+        return text, entities
+
+    @staticmethod
+    def unparse(text, entities):
+        for i, e in enumerate(entities or []):
+            if isinstance(e, types.MessageEntityCustomEmoji):
+                entities[i] = types.MessageEntityTextUrl(e.offset, e.length, f'emoji/{e.document_id}')
+            if isinstance(e, types.MessageEntitySpoiler):
+                entities[i] = types.MessageEntityTextUrl(e.offset, e.length, 'spoiler')
+        return markdown.unparse(text, entities)
+
 
 class BotTelegram:
     def __init__(self, bot_token: str, api_id: str, api_hash: str, session_id: str = ""):
@@ -9,14 +32,7 @@ class BotTelegram:
         
         self.bot = TelegramClient("bot_vocabulary" + session_id, api_id, api_hash).start(bot_token=bot_token)
         self.client = TelegramClient("client_vocabulary" + session_id, api_id, api_hash).start()
-
-        self._register_default_commands()
-
-    def _register_default_commands(self):
-        @self.bot.on(events.NewMessage(pattern="/start"))
-        async def start_handler(event: events.NewMessage.Event):
-            await self.bot.send_message(event.chat_id, "Hello, world!")
-       
+        
     def run_until_disconnect(self):
         async def async_run_events():
             await self.bot.run_until_disconnected()
