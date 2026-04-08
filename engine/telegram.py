@@ -33,7 +33,9 @@ class BotTelegram:
         self.bot = TelegramClient("bot_vocabulary" + session_id, api_id, api_hash).start(bot_token=bot_token)
         self.client = TelegramClient("client_vocabulary" + session_id, api_id, api_hash).start()
         
-    def run_until_disconnect(self):
+    def run_until_disconnect(self, startup_hook=None):
         async def async_run_events():
+            if startup_hook:
+                await startup_hook()
             await self.bot.run_until_disconnected()
         self.loop.run_until_complete(async_run_events())

@@ -1,9 +1,21 @@
-import string
 import json
-import re
-import requests
+import string
+
+from google import genai
+from pydantic import BaseModel
+from google.genai import types
 
 from utils.constants import GEMINI_API_KEY, UPSKILL_ENGLISH_PROMPT
+
+
+class QuestionSchema(BaseModel):
+    question: str
+    optionA: str
+    optionB: str
+    optionC: str
+    optionD: str
+    answer: str
+    explain: str
 
 
 def remove_punc(text):
@@ -13,7 +25,7 @@ def remove_punc(text):
 
 def replace_space_with_underscope(text: str):
     space = " "
-    underscore = "\_"
+    underscore = r"\_"
     return text.replace(space, underscore)
 
 
@@ -22,14 +34,14 @@ def normalize_text(text: str):
 
 
 def get_question(prompt: str):
-    response = requests.post(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-        headers={'X-goog-api-key': GEMINI_API_KEY},
-        json={"contents": [{"parts": [{ "text": prompt }]}]},
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=QuestionSchema,
+            temperature=0.7,
+        ),
     )
-    text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    if match:
-        return json.loads(match.group())
-    else:
-        return None
+    return json.loads(response.text)

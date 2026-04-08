@@ -79,9 +79,22 @@ class BotVocabulary:
             text = random_vocabulary.convert_to_markdown(with_hashtag=False, with_spoilers=True)
             buttons = [[Buttons.UPSKILL, Buttons.VOCAB_SHUFFLE, Buttons.CLEAR]]
             await bot.send_message(chat_id, text, parse_mode=CustomMarkdown(), buttons=buttons)
+
+        @bot.on(events.NewMessage(pattern="/help"))
+        async def help_handler(event: events.NewMessage.Event):
+            chat_id = event.chat_id
+            help_text = (
+                "**📚 Bot Flashcard - Hướng dẫn sử dụng:**\n\n"
+                "🔹 `/start` - Hiển thị menu trắc nghiệm và một từ vựng ngẫu nhiên\n"
+                "🔹 `/search <từ khóa>` - Tra cứu nghĩa của từ trên Cambridge Dictionary (VD: `/search vocabulary`). Có thể lưu thêm vào kho từ vựng trực tiếp tại đây!\n"
+                "🔹 `/help` - Hiển thị lại tin nhắn hướng dẫn này\n\n"
+                "💡 Ghi chú: Bot hỗ trợ giao diện bấm nút dễ dàng nên bạn chỉ cần thao tác trực tiếp trên các nút thay vì phải gõ quá nhiều tin nhắn nhé!"
+            )
+            await bot.send_message(chat_id, help_text, parse_mode="Markdown")
         
         @bot.on(events.CallbackQuery(pattern=Buttons.VOCAB_SHUFFLE.data))
         async def shuffle_handler(event: events.CallbackQuery.Event):
+            if getattr(event, 'chat_id', None) == self.admin_id: return
             chat_id = event.chat_id
             message = await event.get_message()
             mess_id = message.id
@@ -90,6 +103,7 @@ class BotVocabulary:
 
         @bot.on(events.CallbackQuery(pattern=Buttons.UPSKILL.data))
         async def upskill_english_handler(event: events.CallbackQuery.Event):
+            if getattr(event, 'chat_id', None) == self.admin_id: return
             chat_id = event.chat_id
             message = await event.get_message()
             mess_id = message.id
@@ -123,6 +137,7 @@ class BotVocabulary:
 
         @bot.on(events.CallbackQuery(pattern=b"^answer_.+$"))
         async def answer_handler(event: events.CallbackQuery.Event):
+            if getattr(event, 'chat_id', None) == self.admin_id: return
             chat_id = event.chat_id
             message = await event.get_message()
             mess_id = message.id
@@ -147,6 +162,7 @@ class BotVocabulary:
 
         @bot.on(events.NewMessage(pattern="/search"))
         async def search_handler(event: events.NewMessage.Event):
+            if event.chat_id == self.admin_id: return
             chat_id = event.chat_id
             message: str = event.message.message
             word = message.replace("/search", "").strip().replace(" ", "-")
@@ -154,7 +170,7 @@ class BotVocabulary:
             try:
                 definitions = get_definitions(word)
             except Exception as e:
-                await bot.send_message(f"Error getting definitions: {e}", err)
+                await bot.send_message(chat_id, f"Error getting definitions: {e}")
                 return
 
             self.last_search_definitions = definitions
@@ -171,6 +187,7 @@ class BotVocabulary:
 
         @bot.on(events.CallbackQuery(pattern=b"^add_\\d+$"))
         async def add_handler(event: events.CallbackQuery.Event):
+            if getattr(event, 'chat_id', None) == self.admin_id: return
             chat_id = event.chat_id
             message = await event.get_message()
             mess_id = message.id
@@ -192,7 +209,8 @@ class BotVocabulary:
                 await bot.send_message(chat_id, "Index out of range, try /search again!")
 
         @bot.on(events.CallbackQuery(pattern=Buttons.CLEAR.data))
-        async def upskill_english_handler(event: events.CallbackQuery.Event):
+        async def clear_handler(event: events.CallbackQuery.Event):
+            if getattr(event, 'chat_id', None) == self.admin_id: return
             list_id = []
             chat = await self.tele_engine.client.get_entity(event.chat_id)
             async for message in self.tele_engine.client.iter_messages(chat, limit= None):
@@ -201,4 +219,31 @@ class BotVocabulary:
             await self.tele_engine.client.delete_messages(chat, message_ids=list_id)
             
     def run_until_disconnect(self):
-        self.tele_engine.run_until_disconnect()
+        from telethon import functions, types
+        async def setup_commands():
+            try:
+                # Ghi đè UI gợi ý dấu / (Set /help và /start cho riêng Group Admin_ID)
+                entity = await self.tele_engine.bot.get_input_entity(self.admin_id)
+                await self.tele_engine.bot(functions.bots.SetBotCommandsRequest(
+                    scope=types.BotCommandScopePeer(peer=entity),
+                    lang_code='',
+                    commands=[
+                        types.BotCommand(command='start', description='Hiển thị menu chính'),
+                        types.BotCommand(command='help', description='Mở file Hướng dẫn')
+                    ]
+                ))
+                # Set các lệnh mặc định cho mọi nơi khác để đè lên những mã rác cũ của Telegram bot 
+                await self.tele_engine.bot(functions.bots.SetBotCommandsRequest(
+                    scope=types.BotCommandScopeDefault(),
+                    lang_code='',
+                    commands=[
+                        types.BotCommand(command='start', description='Làm bài tập Menu chính'),
+                        types.BotCommand(command='search', description='Tra cứu từ mới'),
+                        types.BotCommand(command='help', description='Hướng dẫn')
+                    ]
+                ))
+                print("Đã nạp thành công Popup Menu cho dấu / !")
+            except Exception as e:
+                print("Cảnh báo khi cài Popup Menu:", e)
+
+        self.tele_engine.run_until_disconnect(startup_hook=setup_commands)
