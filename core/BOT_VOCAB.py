@@ -34,6 +34,11 @@ class Buttons:
     ANSWER_C = Button.inline("C", ANSWER_C_DATA)
     ANSWER_D = Button.inline("D", ANSWER_D_DATA)
 
+    NOTE_IELTS_DATA = b"show_note_ielts"
+    NOTE_SD_DATA = b"show_note_sd"
+    NOTE_IELTS = Button.inline("📝 Ghi chú IELTS", NOTE_IELTS_DATA)
+    NOTE_SD    = Button.inline("💻 Ghi chú System Design", NOTE_SD_DATA)
+
 
 class BotVocabulary:
     def __init__(
@@ -52,25 +57,34 @@ class BotVocabulary:
 
         self.admin_id = admin_id
         self.questions_by_chat: dict[int, dict] = {}
-        self.list_vocabulary: list[Vocabulary] = self.get_list_vocabulary()
+        
+        self.list_vocabulary: list[Vocabulary] = []
+        self.list_notes_ielts: list[str] = []
+        self.list_notes_system_design: list[str] = []
+        self.load_data()
 
         self.register_commands()
 
-    def get_list_vocabulary(self):
-        list_vocabulary = []
+    def load_data(self):
         list_message = self.tele_engine.client.get_messages(self.admin_id, limit=None)
         for message in list_message:
             text = message.text
-            if text and "#" in text:
+            if not text:
+                continue
+
+            if "#note_ielts" in text:
+                self.list_notes_ielts.append(text)
+            elif "#note_system_design" in text or "#note_sd" in text:
+                self.list_notes_system_design.append(text)
+            elif "#" in text:
                 vocab = Vocabulary()
                 try:
                     if vocab.init_from_markdown(text):
-                        list_vocabulary.append(vocab)
+                        self.list_vocabulary.append(vocab)
                     else:
                         print(f"Skipping invalid vocabulary message {message.id}")
                 except Exception as e:
                     print(f"Skipping vocabulary message {message.id}: {e}")
-        return list_vocabulary
 
     def question_text(self, question: dict, has_explain: bool = False):
         text = f"**{question['question']}**\n\n"
@@ -99,18 +113,31 @@ class BotVocabulary:
                 return
             random_vocabulary = random.choice(self.list_vocabulary)
             text = random_vocabulary.convert_to_markdown(with_hashtag=False, with_spoilers=True)
-            buttons = [[Buttons.UPSKILL, Buttons.VOCAB_SHUFFLE, Buttons.CLEAR]]
+            buttons = [
+                [Buttons.UPSKILL, Buttons.VOCAB_SHUFFLE, Buttons.CLEAR],
+                [Buttons.NOTE_IELTS, Buttons.NOTE_SD]
+            ]
             await bot.send_message(chat_id, text, parse_mode=CustomMarkdown(), buttons=buttons)
 
         @bot.on(events.NewMessage(pattern="/help", chats=self.admin_id))
         async def help_handler(event: events.NewMessage.Event):
             chat_id = event.chat_id
             help_text = (
-                "**📚 Bot Flashcard - Hướng dẫn sử dụng:**\n\n"
-                "🔹 `/start` - Hiển thị menu trắc nghiệm và một từ vựng ngẫu nhiên\n"
-                "🔹 `/search <từ khóa>` - Tra cứu nghĩa của từ trên Cambridge Dictionary (VD: `/search vocabulary`). Có thể lưu thêm vào kho từ vựng trực tiếp tại đây!\n"
-                "🔹 `/help` - Hiển thị lại tin nhắn hướng dẫn này\n\n"
-                "💡 Ghi chú: Bot hỗ trợ giao diện bấm nút dễ dàng nên bạn chỉ cần thao tác trực tiếp trên các nút thay vì phải gõ quá nhiều tin nhắn nhé!"
+                "**📚 Bot Flashcard & Ghi chú - Hướng dẫn sử dụng:**\n\n"
+                "🔹 `/start` - Hiển thị menu học tập (Trắc nghiệm, Từ vựng, Ghi chú IELTS & System Design)\n"
+                "🔹 `/search <từ khóa>` - Tra cứu nghĩa trên Cambridge Dictionary (VD: `/search vocabulary`). Có thể lưu thêm vào kho từ vựng trực tiếp tại đây!\n"
+                "🔹 `/add_note_ielts` - Thêm ghi chú chủ đề IELTS mới\n"
+                "🔹 `/add_note_system_design` hoặc `/add_note_sd` - Thêm ghi chú chủ đề System Design mới\n"
+                "🔹 `/help` - Xem tin nhắn hướng dẫn sử dụng chi tiết này\n\n"
+                "💡 **Cách thêm ghi chú mẫu:**\n"
+                "Gửi tin nhắn theo cú pháp:\n"
+                "/add_note_ielts\n"
+                "```\n"
+                "\"\"\"\n"
+                "Đây là một ví dụ\n"
+                "\"\"\"\n"
+                "```\n\n"
+                "💡 **Ghi chú:** Bạn chỉ cần nhấn trực tiếp các nút bấm giao diện để đổi từ vựng hoặc đổi ghi chú ngẫu nhiên cực nhanh nhé!"
             )
             await bot.send_message(chat_id, help_text, parse_mode="Markdown")
         
@@ -276,6 +303,97 @@ class BotVocabulary:
                     await self.tele_engine.client.delete_messages(chat, message_ids=list_id)
             except Exception as e:
                 await bot.send_message(event.chat_id, f"Lỗi khi clear chat: {e}")
+
+        # Commands for adding IELTS & System Design notes
+        @bot.on(events.NewMessage(chats=self.admin_id))
+        async def add_note_handler(event: events.NewMessage.Event):
+            text = event.message.message
+            if not text:
+                return
+
+            is_ielts = text.startswith("/add_note_ielts")
+            is_sd = text.startswith("/add_note_system_design") or text.startswith("/add_note_sd")
+
+            if not (is_ielts or is_sd):
+                return
+
+            import re
+            match = re.search(r'"""([\s\S]*?)"""', text)
+            if not match:
+                await event.reply('Vui lòng nhập nội dung ghi chú trong cặp dấu """!')
+                return
+
+            content = match.group(1).strip()
+            hashtag = "#note_ielts" if is_ielts else "#note_system_design"
+            message_to_send = f"{content}\n\n{hashtag}"
+
+            # Post the note back to the chat
+            await bot.send_message(event.chat_id, message_to_send)
+
+            # Store in local memory list
+            if is_ielts:
+                self.list_notes_ielts.append(message_to_send)
+            else:
+                self.list_notes_system_design.append(message_to_send)
+
+            # Delete the user's original command message
+            try:
+                chat = await self.tele_engine.client.get_entity(event.chat_id)
+                async for msg in self.tele_engine.client.iter_messages(chat, limit=20):
+                    if msg.text == text:
+                        await self.tele_engine.client.delete_messages(chat, message_ids=[msg.id])
+                        break
+            except Exception as e:
+                print(f"Cảnh báo: Không thể xóa tin nhắn command: {e}")
+
+        # Callbacks for displaying IELTS & System Design notes
+        @bot.on(events.CallbackQuery(pattern=b"^show_note_ielts$", chats=self.admin_id))
+        async def show_note_ielts_handler(event: events.CallbackQuery.Event):
+            await answer_callback(event)
+            try:
+                chat_id = event.chat_id
+                message = await event.get_message()
+                mess_id = message.id
+
+                await bot.delete_messages(chat_id, mess_id)
+
+                if not self.list_notes_ielts:
+                    text = "Hiện tại chưa có ghi chú IELTS nào. Hãy thêm bằng lệnh `/add_note_ielts`!"
+                else:
+                    text = random.choice(self.list_notes_ielts)
+                    text = text.replace("#note_ielts", "").strip()
+
+                buttons = [
+                    [Buttons.UPSKILL, Buttons.VOCAB_SHUFFLE, Buttons.CLEAR],
+                    [Buttons.NOTE_IELTS, Buttons.NOTE_SD]
+                ]
+                await bot.send_message(chat_id, text, parse_mode=CustomMarkdown(), buttons=buttons)
+            except Exception as e:
+                await bot.send_message(event.chat_id, f"Lỗi: {e}")
+
+        @bot.on(events.CallbackQuery(pattern=b"^show_note_sd$", chats=self.admin_id))
+        async def show_note_sd_handler(event: events.CallbackQuery.Event):
+            await answer_callback(event)
+            try:
+                chat_id = event.chat_id
+                message = await event.get_message()
+                mess_id = message.id
+
+                await bot.delete_messages(chat_id, mess_id)
+
+                if not self.list_notes_system_design:
+                    text = "Hiện tại chưa có ghi chú System Design nào. Hãy thêm bằng lệnh `/add_note_system_design` hoặc `/add_note_sd`!"
+                else:
+                    text = random.choice(self.list_notes_system_design)
+                    text = text.replace("#note_system_design", "").replace("#note_sd", "").strip()
+
+                buttons = [
+                    [Buttons.UPSKILL, Buttons.VOCAB_SHUFFLE, Buttons.CLEAR],
+                    [Buttons.NOTE_IELTS, Buttons.NOTE_SD]
+                ]
+                await bot.send_message(chat_id, text, parse_mode=CustomMarkdown(), buttons=buttons)
+            except Exception as e:
+                await bot.send_message(event.chat_id, f"Lỗi: {e}")
             
     def run_until_disconnect(self):
         from telethon import functions, types
