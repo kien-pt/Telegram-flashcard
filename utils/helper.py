@@ -1,5 +1,6 @@
 import json
 import string
+import re
 
 from google import genai
 from pydantic import BaseModel
@@ -24,13 +25,11 @@ def remove_punc(text):
 
 
 def replace_space_with_underscope(text: str):
-    space = " "
-    underscore = r"\_"
-    return text.replace(space, underscore)
+    return re.sub(r'\s+', '_', text.strip())
 
 
 def normalize_text(text: str):
-    return replace_space_with_underscope(remove_punc(text))
+    return replace_space_with_underscope(remove_punc(text).lower())
 
 
 def get_question(prompt: str):

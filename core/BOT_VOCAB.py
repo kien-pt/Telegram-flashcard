@@ -12,19 +12,27 @@ from engine.telegram import BotTelegram, CustomMarkdown
 
 
 class Buttons:
-    UPSKILL         = Button.inline("🚀 Upskill", "upskill_english")
-    UPSKILL_SHUFFLE = Button.inline("🔀 Shuffle", "upskill_english")
+    UPSKILL_DATA = b"upskill_english"
+    SHUFFLE_DATA = b"shuffle"
+    CLEAR_DATA = b"clear"
+    ANSWER_A_DATA = b"answer_a"
+    ANSWER_B_DATA = b"answer_b"
+    ANSWER_C_DATA = b"answer_c"
+    ANSWER_D_DATA = b"answer_d"
 
-    VOCAB         = Button.inline("🔠 Vocabulary", "shuffle")
-    VOCAB_SHUFFLE = Button.inline("🔀 Shuffle", "shuffle")
+    UPSKILL         = Button.inline("🚀 Upskill", UPSKILL_DATA)
+    UPSKILL_SHUFFLE = Button.inline("🔀 Shuffle", UPSKILL_DATA)
+
+    VOCAB         = Button.inline("🔠 Vocabulary", SHUFFLE_DATA)
+    VOCAB_SHUFFLE = Button.inline("🔀 Shuffle", SHUFFLE_DATA)
     
-    CLEAR   = Button.inline("🗑️ Clear", "clear")
-    LOADING = Button.inline("⏳ Loading...", "")
+    CLEAR   = Button.inline("🗑️ Clear", CLEAR_DATA)
+    LOADING = Button.inline("⏳ Loading...", b"loading")
 
-    ANSWER_A = Button.inline("A", "answer_a")
-    ANSWER_B = Button.inline("B", "answer_b")
-    ANSWER_C = Button.inline("C", "answer_c")
-    ANSWER_D = Button.inline("D", "answer_d")
+    ANSWER_A = Button.inline("A", ANSWER_A_DATA)
+    ANSWER_B = Button.inline("B", ANSWER_B_DATA)
+    ANSWER_C = Button.inline("C", ANSWER_C_DATA)
+    ANSWER_D = Button.inline("D", ANSWER_D_DATA)
 
 
 class BotVocabulary:
@@ -40,47 +48,61 @@ class BotVocabulary:
         asyncio.set_event_loop(self.loop)
 
         self.tele_engine = BotTelegram(bot_token, api_id, api_hash)
-        self.last_search_definitions = None
+        self.last_search_definitions_by_chat: dict[int, list[Vocabulary]] = {}
 
         self.admin_id = admin_id
-        self.question = None
+        self.questions_by_chat: dict[int, dict] = {}
         self.list_vocabulary: list[Vocabulary] = self.get_list_vocabulary()
 
         self.register_commands()
 
     def get_list_vocabulary(self):
-        vocab = Vocabulary()
         list_vocabulary = []
         list_message = self.tele_engine.client.get_messages(self.admin_id, limit=None)
         for message in list_message:
             text = message.text
             if text and "#" in text:
-                vocab.init_from_markdown(text)
-                list_vocabulary.append(vocab)
+                vocab = Vocabulary()
+                try:
+                    if vocab.init_from_markdown(text):
+                        list_vocabulary.append(vocab)
+                    else:
+                        print(f"Skipping invalid vocabulary message {message.id}")
+                except Exception as e:
+                    print(f"Skipping vocabulary message {message.id}: {e}")
         return list_vocabulary
 
-    def question_text(self, has_explain: bool = False):
-        text = f"**{self.question['question']}**\n\n"
-        text += f"A. {self.question['optionA']}\n"
-        text += f"B. {self.question['optionB']}\n"
-        text += f"C. {self.question['optionC']}\n"
-        text += f"D. {self.question['optionD']}\n\n"
+    def question_text(self, question: dict, has_explain: bool = False):
+        text = f"**{question['question']}**\n\n"
+        text += f"A. {question['optionA']}\n"
+        text += f"B. {question['optionB']}\n"
+        text += f"C. {question['optionC']}\n"
+        text += f"D. {question['optionD']}\n\n"
         if has_explain:
-            text += f"**Explain:** {self.question['explain']}\n\n"
+            text += f"**Explain:** {question['explain']}\n\n"
         return text
 
     def register_commands(self):
         bot = self.tele_engine.bot
 
-        @bot.on(events.NewMessage(pattern="/start"))
+        async def answer_callback(event: events.CallbackQuery.Event, text: str | None = None):
+            try:
+                await event.answer(text or "")
+            except Exception:
+                pass
+
+        @bot.on(events.NewMessage(pattern="/start", chats=self.admin_id))
         async def start_handler(event: events.CallbackQuery.Event):
             chat_id = event.chat_id
+            if not self.list_vocabulary:
+                await bot.send_message(chat_id, "Chưa có từ vựng nào trong kho admin để hiển thị.")
+                return
             random_vocabulary = random.choice(self.list_vocabulary)
             text = random_vocabulary.convert_to_markdown(with_hashtag=False, with_spoilers=True)
             buttons = [[Buttons.UPSKILL, Buttons.VOCAB_SHUFFLE, Buttons.CLEAR]]
             await bot.send_message(chat_id, text, parse_mode=CustomMarkdown(), buttons=buttons)
 
-        @bot.on(events.NewMessage(pattern="/help"))
+        @bot.on(events.NewMessage(pattern="/help", chats=self.admin_id))
         async def help_handler(event: events.NewMessage.Event):
             chat_id = event.chat_id
             help_text = (
@@ -92,80 +114,105 @@ class BotVocabulary:
             )
             await bot.send_message(chat_id, help_text, parse_mode="Markdown")
         
-        @bot.on(events.CallbackQuery(pattern=Buttons.VOCAB_SHUFFLE.data))
+        @bot.on(events.CallbackQuery(pattern=b"^shuffle$", chats=self.admin_id))
         async def shuffle_handler(event: events.CallbackQuery.Event):
-            if getattr(event, 'chat_id', None) == self.admin_id: return
             chat_id = event.chat_id
-            message = await event.get_message()
-            mess_id = message.id
-            await bot.delete_messages(chat_id, mess_id)
-            await start_handler(event)
+            await answer_callback(event)
+            try:
+                message = await event.get_message()
+                mess_id = message.id
+                await bot.delete_messages(chat_id, mess_id)
+                await start_handler(event)
+            except Exception as e:
+                await bot.send_message(chat_id, f"Không thể đổi flashcard: {e}")
 
-        @bot.on(events.CallbackQuery(pattern=Buttons.UPSKILL.data))
+        @bot.on(events.CallbackQuery(pattern=b"^upskill_english$", chats=self.admin_id))
         async def upskill_english_handler(event: events.CallbackQuery.Event):
-            if getattr(event, 'chat_id', None) == self.admin_id: return
             chat_id = event.chat_id
-            message = await event.get_message()
-            mess_id = message.id
+            await answer_callback(event, "Đang tạo câu hỏi...")
+            try:
+                message = await event.get_message()
+                mess_id = message.id
 
-            text = message.text.replace(" ", " ​")
-            buttons = message.buttons
+                text = message.text.replace(" ", " ​")
+                current_buttons = message.buttons or []
+                loading_buttons = []
+                for row in current_buttons:
+                    loading_row = []
+                    for button in row:
+                        if getattr(button, "data", None) in [Buttons.UPSKILL.data, Buttons.UPSKILL_SHUFFLE.data]:
+                            loading_row.append(Buttons.LOADING)
+                        else:
+                            loading_row.append(button)
+                    loading_buttons.append(loading_row)
+                
+                await bot.edit_message(chat_id, mess_id, text, parse_mode=CustomMarkdown(), buttons=loading_buttons)
 
-            for index, row in enumerate(buttons):
-                for index_button, button in enumerate(row):
-                    if button.data in [Buttons.UPSKILL.data, Buttons.UPSKILL_SHUFFLE.data]:
-                        buttons[index][index_button] = Buttons.LOADING
-            
-            await bot.edit_message(chat_id, mess_id, text, parse_mode=CustomMarkdown(), buttons=buttons)
+                question = None
+                for _ in range(3):
+                    question = get_question(UPSKILL_ENGLISH_PROMPT)
+                    if question:
+                        break
 
-            for _ in range(3):
-                try:
-                    self.question = get_question(UPSKILL_ENGLISH_PROMPT)
-                    if self.question: break
-                except Exception as e:
-                    await bot.send_message(chat_id, f"Error: {e}")
+                if not question:
+                    await bot.send_message(chat_id, "Không tạo được câu hỏi mới, bạn bấm lại giúp mình nhé.")
                     return
 
-            text = self.question_text()
-            buttons = [
-                [Buttons.ANSWER_A, Buttons.ANSWER_B],
-                [Buttons.ANSWER_C, Buttons.ANSWER_D],
-                [Buttons.VOCAB, Buttons.UPSKILL_SHUFFLE, Buttons.CLEAR],
-            ]
+                self.questions_by_chat[chat_id] = question
 
-            await bot.edit_message(chat_id, mess_id, text, parse_mode="Markdown", buttons=buttons)
+                text = self.question_text(question)
+                buttons = [
+                    [Buttons.ANSWER_A, Buttons.ANSWER_B],
+                    [Buttons.ANSWER_C, Buttons.ANSWER_D],
+                    [Buttons.VOCAB, Buttons.UPSKILL_SHUFFLE, Buttons.CLEAR],
+                ]
 
-        @bot.on(events.CallbackQuery(pattern=b"^answer_.+$"))
+                await bot.edit_message(chat_id, mess_id, text, parse_mode="Markdown", buttons=buttons)
+            except Exception as e:
+                await bot.send_message(chat_id, f"Lỗi khi xử lý nút Upskill: {e}")
+
+        @bot.on(events.CallbackQuery(pattern=b"^answer_.+$", chats=self.admin_id))
         async def answer_handler(event: events.CallbackQuery.Event):
-            if getattr(event, 'chat_id', None) == self.admin_id: return
             chat_id = event.chat_id
-            message = await event.get_message()
-            mess_id = message.id
+            await answer_callback(event)
+            try:
+                question = self.questions_by_chat.get(chat_id)
+                if not question:
+                    await bot.send_message(chat_id, "Câu hỏi đã hết phiên. Bạn bấm `🚀 Upskill` để tạo câu mới nhé.", parse_mode="Markdown")
+                    return
 
-            data = event.data.decode("utf-8")
-            answer = data.split("_")[1]
+                message = await event.get_message()
+                mess_id = message.id
 
-            text = self.question_text(has_explain=True)
-            buttons = [
-                [
-                    Button.inline(answer == "a" and (self.question["answer"] == "a" and "✅" or "❌") or "A", ""),
-                    Button.inline(answer == "b" and (self.question["answer"] == "b" and "✅" or "❌") or "B", ""),
-                ],
-                [
-                    Button.inline(answer == "c" and (self.question["answer"] == "c" and "✅" or "❌") or "C", ""),
-                    Button.inline(answer == "d" and (self.question["answer"] == "d" and "✅" or "❌") or "D", ""),
-                ],
-                [Buttons.VOCAB, Buttons.UPSKILL_SHUFFLE, Buttons.CLEAR],
-            ]
+                data = event.data.decode("utf-8")
+                answer = data.split("_")[1]
 
-            await bot.edit_message(chat_id, mess_id, text, parse_mode="Markdown", buttons=buttons)
+                text = self.question_text(question, has_explain=True)
+                buttons = [
+                    [
+                        Button.inline(answer == "a" and (question["answer"] == "a" and "✅" or "❌") or "A", b"answered"),
+                        Button.inline(answer == "b" and (question["answer"] == "b" and "✅" or "❌") or "B", b"answered"),
+                    ],
+                    [
+                        Button.inline(answer == "c" and (question["answer"] == "c" and "✅" or "❌") or "C", b"answered"),
+                        Button.inline(answer == "b" and (question["answer"] == "d" and "✅" or "❌") or "D", b"answered"),
+                    ],
+                    [Buttons.VOCAB, Buttons.UPSKILL_SHUFFLE, Buttons.CLEAR],
+                ]
 
-        @bot.on(events.NewMessage(pattern="/search"))
+                await bot.edit_message(chat_id, mess_id, text, parse_mode="Markdown", buttons=buttons)
+            except Exception as e:
+                await bot.send_message(chat_id, f"Lỗi khi chấm đáp án: {e}")
+
+        @bot.on(events.NewMessage(pattern="/search", chats=self.admin_id))
         async def search_handler(event: events.NewMessage.Event):
-            if event.chat_id == self.admin_id: return
             chat_id = event.chat_id
+
             message: str = event.message.message
             word = message.replace("/search", "").strip().replace(" ", "-")
+            if not word:
+                await bot.send_message(chat_id, "Cú pháp đúng: `/search <word>`", parse_mode="Markdown")
+                return
 
             try:
                 definitions = get_definitions(word)
@@ -173,7 +220,14 @@ class BotVocabulary:
                 await bot.send_message(chat_id, f"Error getting definitions: {e}")
                 return
 
-            self.last_search_definitions = definitions
+            self.last_search_definitions_by_chat[chat_id] = definitions
+            if not definitions:
+                await bot.send_message(
+                    chat_id,
+                    f"Không tìm thấy định nghĩa nào cho `{word}` trên Cambridge.",
+                    parse_mode="Markdown",
+                )
+                return
 
             text = ""
             buttons = []
@@ -185,38 +239,43 @@ class BotVocabulary:
             
             await bot.send_message(chat_id, text, buttons=buttons)
 
-        @bot.on(events.CallbackQuery(pattern=b"^add_\\d+$"))
+        @bot.on(events.CallbackQuery(pattern=b"^add_\\d+$", chats=self.admin_id))
         async def add_handler(event: events.CallbackQuery.Event):
-            if getattr(event, 'chat_id', None) == self.admin_id: return
             chat_id = event.chat_id
-            message = await event.get_message()
-            mess_id = message.id
+            await answer_callback(event)
+            try:
+                message = await event.get_message()
+                mess_id = message.id
 
-            data  = event.data.decode("utf-8")
-            index = int(data.split("_")[1])
+                data  = event.data.decode("utf-8")
+                index = int(data.split("_")[1]) - 1
 
-            await bot.delete_messages(chat_id, mess_id)
+                await bot.delete_messages(chat_id, mess_id)
 
-            if index < len(self.last_search_definitions):
-                definition: Vocabulary = self.last_search_definitions[index]
-                try:
+                definitions = self.last_search_definitions_by_chat.get(chat_id, [])
+                if 0 <= index < len(definitions):
+                    definition: Vocabulary = definitions[index]
                     text = definition.convert_to_markdown()
                     self.list_vocabulary.append(definition)
                     await bot.send_message(chat_id, text, parse_mode="Markdown")
-                except Exception as e:
-                    await bot.send_message(chat_id, f"Internal error, try /search again!\nError: {e}")
-            else:
-                await bot.send_message(chat_id, "Index out of range, try /search again!")
+                else:
+                    await bot.send_message(chat_id, "Không tìm thấy kết quả đã chọn, bạn hãy `/search` lại nhé.", parse_mode="Markdown")
+            except Exception as e:
+                await bot.send_message(chat_id, f"Lỗi khi thêm từ vựng: {e}")
 
-        @bot.on(events.CallbackQuery(pattern=Buttons.CLEAR.data))
+        @bot.on(events.CallbackQuery(pattern=b"^clear$", chats=self.admin_id))
         async def clear_handler(event: events.CallbackQuery.Event):
-            if getattr(event, 'chat_id', None) == self.admin_id: return
-            list_id = []
-            chat = await self.tele_engine.client.get_entity(event.chat_id)
-            async for message in self.tele_engine.client.iter_messages(chat, limit= None):
-                if message.text and "#" not in message.text:
-                    list_id.append(message.id)
-            await self.tele_engine.client.delete_messages(chat, message_ids=list_id)
+            await answer_callback(event, "Đang dọn chat...")
+            try:
+                list_id = []
+                chat = await self.tele_engine.client.get_entity(event.chat_id)
+                async for message in self.tele_engine.client.iter_messages(chat, limit=None):
+                    if message.text and "#" not in message.text:
+                        list_id.append(message.id)
+                if list_id:
+                    await self.tele_engine.client.delete_messages(chat, message_ids=list_id)
+            except Exception as e:
+                await bot.send_message(event.chat_id, f"Lỗi khi clear chat: {e}")
             
     def run_until_disconnect(self):
         from telethon import functions, types
@@ -232,15 +291,11 @@ class BotVocabulary:
                         types.BotCommand(command='help', description='Mở file Hướng dẫn')
                     ]
                 ))
-                # Set các lệnh mặc định cho mọi nơi khác để đè lên những mã rác cũ của Telegram bot 
+                # Set các lệnh mặc định cho mọi nơi khác ẩn hết
                 await self.tele_engine.bot(functions.bots.SetBotCommandsRequest(
                     scope=types.BotCommandScopeDefault(),
                     lang_code='',
-                    commands=[
-                        types.BotCommand(command='start', description='Làm bài tập Menu chính'),
-                        types.BotCommand(command='search', description='Tra cứu từ mới'),
-                        types.BotCommand(command='help', description='Hướng dẫn')
-                    ]
+                    commands=[]
                 ))
                 print("Đã nạp thành công Popup Menu cho dấu / !")
             except Exception as e:

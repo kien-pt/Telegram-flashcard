@@ -7,31 +7,47 @@ class Vocabulary:
             ipa: str = None,
             word_type: str = None,
             definition: str = None,
-            examples: list[str] = []
+            examples: list[str] | None = None
         ):
         self.word = word
         self.ipa = ipa
-        self.examples = examples
+        self.examples = examples or []
         self.word_type = word_type
         self.definition = definition
 
     def init_from_markdown(self, md: str) -> bool:
-        if "#" not in md: return False
+        if "#" not in md:
+            return False
 
-        text = md.replace("#", "").replace("**", "")
-        list_row = text.split("\n\n")
+        text = md.replace("**", "")
+        list_row = [row.strip() for row in text.split("\n\n") if row.strip()]
+        if len(list_row) < 3:
+            return False
 
-        word_text = list_row[0]
-        self.word = word_text.split('\n')[0].replace("_", " ")
+        word_lines = [line.strip() for line in list_row[0].splitlines() if line.strip()]
+        if not word_lines:
+            return False
 
-        if len(word_text.split('\n')) > 1:
-            self.ipa = word_text.split('\n')[1].replace("[", "").replace("]", "")
+        self.word = word_lines[0].lstrip("#").replace("_", " ").strip()
+        if not self.word:
+            return False
 
-        self.word_type = list_row[1].replace("__", "")
-        self.definition = list_row[2]
+        self.ipa = None
+        if len(word_lines) > 1:
+            self.ipa = word_lines[1].replace("[", "").replace("]", "").strip() or None
 
-        if len(list_row) > 3:
-            self.examples = [w.replace("- ", "") for w in list_row[3].split("\n")]
+        self.word_type = list_row[1].replace("__", "").strip()
+        self.definition = list_row[2].strip()
+        if not self.word_type or not self.definition:
+            return False
+
+        self.examples = []
+        for block in list_row[3:]:
+            for line in block.splitlines():
+                cleaned_line = line.strip()
+                if not cleaned_line:
+                    continue
+                self.examples.append(cleaned_line.replace("- ", "", 1))
 
         return True
 
